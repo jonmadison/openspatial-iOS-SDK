@@ -8,7 +8,19 @@
 
 #import "MainViewController.h"
 
+#define SWIPE_STEP 15
+#define FACTOR 10.0
+#define DRAW_WIDTH 2
+
 @interface MainViewController ()
+{
+  NSInteger _imageWidth;
+  NSInteger _imageHeight;
+  UIImageView* _drawImageView;
+  CGPoint drawLocation;
+  CGPoint lastDrawPoint;
+  CGPoint currentDrawPoint;
+}
 
 @end
 
@@ -29,7 +41,21 @@ uint8_t mode = POINTER_MODE;
 {
     self.HIDServ = [OpenSpatialBluetooth sharedBluetoothServ];
     self.HIDServ.delegate = self;
-    [super viewDidLoad];
+  _imageWidth = _viewDrawCanvas.frame.size.width;
+  _imageHeight = _viewDrawCanvas.frame.size.height;
+  drawLocation = CGPointMake((_viewDrawCanvas.frame.origin.x +_imageWidth)/2, (_viewDrawCanvas.frame.origin.y + _imageHeight)/2);
+  lastDrawPoint = drawLocation;
+  _drawImageView = [[UIImageView alloc]initWithFrame:_viewDrawCanvas.frame];
+  [_viewDrawCanvas addSubview:_drawImageView];
+  [super viewDidLoad];
+}
+
+- (void) resetDrawing
+{
+  drawLocation = CGPointMake((_viewDrawCanvas.frame.origin.x +_imageWidth)/2, (_viewDrawCanvas.frame.origin.y + _imageHeight)/2);
+  lastDrawPoint = drawLocation;
+  _drawImageView = [[UIImageView alloc]initWithFrame:_viewDrawCanvas.frame];
+  [_viewDrawCanvas addSubview:_drawImageView];
 }
 
 -(void) startLoop
@@ -88,12 +114,18 @@ uint8_t mode = POINTER_MODE;
 
 -(PointerEvent *)pointerEventFired: (PointerEvent *) pointerEvent
 {
-    
-    NSLog(@"This is the x value of the pointer event from %@", [pointerEvent.peripheral name]);
+    NSString* xStr = [NSString stringWithFormat:@"x from %@: %hd", [pointerEvent.peripheral name],[pointerEvent getXValue]];
+    drawLocation = CGPointMake(drawLocation.x+([pointerEvent getXValue]/FACTOR), drawLocation.y);
+    currentDrawPoint = drawLocation;
+    [self drawSome];
     NSLog(@"%hd", [pointerEvent getXValue]);
-    
-    
-    NSLog(@"This is the y value of the pointer event from %@", [pointerEvent.peripheral name]);
+    [_labelX setText:xStr];
+
+    NSString* yStr = [NSString stringWithFormat:@"y from %@: %hd", [pointerEvent.peripheral name],[pointerEvent getYValue]];
+    [_labelY setText:yStr];
+    drawLocation = CGPointMake(drawLocation.x, drawLocation.y+([pointerEvent getYValue]/FACTOR));
+    currentDrawPoint = drawLocation;
+    [self drawSome];
     NSLog(@"%hd", [pointerEvent getYValue]);
     
     return nil;
@@ -105,27 +137,49 @@ uint8_t mode = POINTER_MODE;
     switch([gestureEvent getGestureEventType])
     {
         case SWIPE_UP:
+            drawLocation = CGPointMake(drawLocation.x, drawLocation.y-SWIPE_STEP);
+            currentDrawPoint = drawLocation;
+            [self drawSome];
+            [_labelGestureLog setText:@"Swipe Up"];
             NSLog(@"Gesture Up");
             break;
         case SWIPE_DOWN:
+            drawLocation = CGPointMake(drawLocation.x, drawLocation.y+SWIPE_STEP);
+            currentDrawPoint = drawLocation;
+            [self drawSome];
+            [_labelGestureLog setText:@"Swipe Down"];
             NSLog(@"Gesture Down");
             break;
         case SWIPE_LEFT:
+            drawLocation = CGPointMake(drawLocation.x-SWIPE_STEP, drawLocation.y);
+            currentDrawPoint = drawLocation;
+            [self drawSome];
+            [_labelGestureLog setText:@"Swipe Left"];
             NSLog(@"Gesture Left");
             break;
         case SWIPE_RIGHT:
-            NSLog(@"Gesture Right");
+            drawLocation = CGPointMake(drawLocation.x+SWIPE_STEP, drawLocation.y);
+            currentDrawPoint = drawLocation;
+          [self drawSome];
+          [_labelGestureLog setText:@"Swipe Right"];
+           NSLog(@"Gesture Right");
             break;
         case SLIDER_LEFT:
+            [_labelGestureLog setText:@"Slider Left"];
             NSLog(@"Slider Left");
             break;
         case SLIDER_RIGHT:
+            [_labelGestureLog setText:@"Slider Right"];
             NSLog(@"Slider Right");
             break;
         case CCW:
-            NSLog(@"Counter Clockwise");
+            [_labelGestureLog setText:@"Counter Clockwise"];
+        //clear image
+        [self resetDrawing];
+           NSLog(@"Counter Clockwise");
             break;
         case CW:
+            [_labelGestureLog setText:@"Clockwise"];
             NSLog(@"Clockwise");
             break;
     }
@@ -160,7 +214,10 @@ uint8_t mode = POINTER_MODE;
 {
     NSLog(@"here");
     self.lastNodPeripheral = peripheral;
-
+  [self.HIDServ subscribeToButtonEvents:self.lastNodPeripheral.name];
+  [self.HIDServ subscribeToGestureEvents:self.lastNodPeripheral.name];
+  [self.HIDServ subscribeToPointerEvents:self.lastNodPeripheral.name];
+  [self.HIDServ subscribeToRotationEvents:self.lastNodPeripheral.name];
 }
 
 - (IBAction)subscribeEvents:(UIButton *)sender
@@ -171,4 +228,22 @@ uint8_t mode = POINTER_MODE;
     [self.HIDServ subscribeToRotationEvents:self.lastNodPeripheral.name];
 }
 
+- (void)drawSome
+{
+  UIGraphicsBeginImageContext(CGSizeMake(_imageWidth, _imageHeight));
+  [_drawImageView.image drawInRect:CGRectMake(0, 0, _imageWidth, _imageHeight)];
+  CGContextSetLineCap(UIGraphicsGetCurrentContext(), kCGLineCapRound);
+  CGContextSetLineWidth(UIGraphicsGetCurrentContext(), DRAW_WIDTH);
+  CGContextSetRGBStrokeColor(UIGraphicsGetCurrentContext(), 0.4, 0.3, 0.8, 1);
+  CGContextBeginPath(UIGraphicsGetCurrentContext());
+  CGContextMoveToPoint(UIGraphicsGetCurrentContext(), lastDrawPoint.x, lastDrawPoint.y);
+  CGContextAddLineToPoint(UIGraphicsGetCurrentContext(), currentDrawPoint.x, currentDrawPoint.y);
+  CGContextStrokePath(UIGraphicsGetCurrentContext());
+  
+  [_drawImageView setFrame:CGRectMake(0, 0, _imageWidth, _imageHeight)];
+  _drawImageView.image = UIGraphicsGetImageFromCurrentImageContext();
+  UIGraphicsEndImageContext();
+  lastDrawPoint = currentDrawPoint;
+  [_viewDrawCanvas addSubview:_drawImageView];
+}
 @end
